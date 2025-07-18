@@ -11,11 +11,10 @@ def download_data_cached(tickers, start, end):
 
 @bp.post("/api/backtest")
 def backtest_api():
-    p   = request.get_json()
+    p = request.get_json()
     tks = tuple(sorted(p["tickers"])) # Convert to tuple for caching
-    st  = p["start"]
-    ed  = safe_end_date(p.get("end"))
-
+    st = p["start"]
+    ed = safe_end_date(p.get("end"))
     df = download_data_cached(tks, start=st, end=ed)
 
     if df.empty:
@@ -23,23 +22,18 @@ def backtest_api():
 
     closes = df.xs('Close', level=1, axis=1)
     weights = np.repeat(1.0 / len(tks), len(tks))
-    
     closes = closes.apply(pd.to_numeric, errors='coerce')
-    
     closes.fillna(method='ffill', inplace=True)
-    
     closes.dropna(inplace=True)
 
     if closes.empty:
         return jsonify({"error": "Data could not be processed after cleaning. Check ticker data availability."}), 400
 
     equity = closes.dot(weights)
-    
     if equity.empty:
         return jsonify({"error": "Equity curve could not be calculated."}), 400
 
     ret = equity.pct_change().dropna()
-
     if ret.empty:
         return jsonify({"error": "Could not calculate returns."}), 400
 
@@ -52,9 +46,9 @@ def backtest_api():
 
     out = {
         "start": st,
-        "end":   ed,
-        "cagr":  cagr,
-        "mdd":   mdd,
+        "end": ed,
+        "cagr": cagr,
+        "mdd": mdd,
         "sharpe": sharpe_ratio,
         "equity": equity.to_json(date_format="iso")
     }
