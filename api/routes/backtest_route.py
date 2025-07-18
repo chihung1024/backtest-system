@@ -18,17 +18,44 @@ def backtest_api():
 
     df = download_data_cached(tks, start=st, end=ed)
 
-    # …以下保持原計算邏輯……………………………………
+    if df.empty:
+        return jsonify({"error": "No data found for the given tickers and date range."}), 400
+
     closes = df.xs('Close', level=1, axis=1)
-    weight = np.repeat(1/len(tks), len(tks))
-    equity = closes.fillna(method="ffill").dot(weight)
-    ret    = equity.pct_change().dropna()
+    weights = np.repeat(1.0 / len(tks), len(tks))
+    
+    closes = closes.apply(pd.to_numeric, errors='coerce')
+    
+    closes.fillna(method='ffill', inplace=True)
+    
+    closes.dropna(inplace=True)
+
+    if closes.empty:
+        return jsonify({"error": "Data could not be processed after cleaning. Check ticker data availability."}), 400
+
+    equity = closes.dot(weights)
+    
+    if equity.empty:
+        return jsonify({"error": "Equity curve could not be calculated."}), 400
+
+    ret = equity.pct_change().dropna()
+
+    if ret.empty:
+        return jsonify({"error": "Could not calculate returns."}), 400
+
+    # Calculations
+    cagr = (equity.iloc[-1] / equity.iloc[0]) ** (252 / len(ret)) - 1 if len(ret) > 0 else 0
+    cumulative_max = equity.cummax()
+    drawdown = (equity - cumulative_max) / cumulative_max
+    mdd = drawdown.min() if not drawdown.empty else 0
+    sharpe_ratio = np.sqrt(252) * ret.mean() / ret.std() if ret.std() != 0 else 0
+
     out = {
         "start": st,
         "end":   ed,
-        "cagr":  (equity.iloc[-1]/equity.iloc[0]) ** (252/len(ret)) - 1,
-        "mdd":   (equity/ equity.cummax()).min() - 1,
-        "sharpe": np.sqrt(252)*ret.mean()/ret.std(),
+        "cagr":  cagr,
+        "mdd":   mdd,
+        "sharpe": sharpe_ratio,
         "equity": equity.to_json(date_format="iso")
     }
     return jsonify(out)
