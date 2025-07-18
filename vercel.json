@@ -2,18 +2,10 @@
   "version": 2,
   "name": "backtest-system",
   "builds": [
-    { "src": "api/**/*.py", "use": "@vercel/python" },
-    { "src": "public/**/*", "use": "@vercel/static" }
+    { "src": "api/index.py", "use": "@vercel/python" }
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "api/index.py" },
-    {
-      "src": "/((?!api/).*)",
-      "dest": "/public/$1"
-    },
-    {
-      "src": "/",
-      "dest": "/public/backtest.html"
-    }
+    { "src": "/(.*)", "dest": "/public/$1" }
   ]
 }
