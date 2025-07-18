@@ -1,66 +1,69 @@
-// backtester_handlers.js: 只負責回測功能的事件處理
-import { state } from '../state.js';
-import { dom } from '../shared/dom.js';
-import * as ui from './backtester_ui.js';
-import * as api from '../shared/api.js';
+// backtester_handlers.js: 處理回測頁面的事件
 
-export async function handleRunBacktest() {
-    dom.errorContainer.innerHTML = '';
-    dom.warningContainer.innerHTML = '';
-    
-    const payload = {
-        initialAmount: parseFloat(document.getElementById('initialAmount').value),
-        startYear: document.getElementById('startYear').value,
-        startMonth: document.getElementById('startMonth').value,
-        endYear: document.getElementById('endYear').value,
-        endMonth: document.getElementById('endMonth').value,
-        rebalancingPeriod: document.getElementById('rebalancingPeriod').value,
-        benchmark: document.getElementById('benchmark').value.trim().toUpperCase(),
-        portfolios: []
-    };
+import { dom } from '../dom.js';
+import { state, updateState } from '../state.js';
+import { renderChart, renderSummaryTable, displayError } from '../ui.js';
+import { runBacktest } from '../api.js';
+import { calculateMetrics } from '../utils.js';
 
-    state.portfolios.forEach(p => {
-        const portfolioConfig = { name: p.name, tickers: [], weights: [], rebalancingPeriod: payload.rebalancingPeriod };
-        state.assets.forEach((asset, index) => {
-            const weight = state.weights[index]?.[p.name] || 0;
-            if (weight > 0 && asset.ticker) {
-                portfolioConfig.tickers.push(asset.ticker);
-                portfolioConfig.weights.push(weight);
-            }
-        });
-        if (portfolioConfig.tickers.length > 0) {
-            const totalWeight = portfolioConfig.weights.reduce((a, b) => a + b, 0);
-            if (Math.abs(totalWeight - 100) > 0.01) {
-                ui.displayError(dom.errorContainer, `投資組合 "${p.name}" 的總權重不為 100%，請修正。`);
-                payload.portfolios = [];
-                return;
-            }
-            payload.portfolios.push(portfolioConfig);
-        }
-    });
+export function setupBacktesterEventHandlers() {
+    if (dom.runBacktestBtn) {
+        dom.runBacktestBtn.addEventListener('click', handleRunBacktest);
+    }
+}
 
-    if (payload.portfolios.length === 0 && !dom.errorContainer.innerHTML) {
-        ui.displayError(dom.errorContainer, '請至少設定一個有效的投資組合 (總權重為100%，且股票代碼不為空)。');
+async function handleRunBacktest() {
+    const tickers = dom.tickersTextarea.value.split('\n').map(t => t.trim()).filter(t => t);
+    if (tickers.length === 0) {
+        alert('請輸入至少一個股票代碼');
         return;
     }
-    if (dom.errorContainer.innerHTML) return;
 
-    dom.resultsPanel.classList.remove('hidden');
-    dom.resultsContent.classList.add('hidden');
-    dom.loader.classList.remove('hidden');
+    const payload = {
+        tickers: tickers,
+        start: `${dom.backtestStartYear.value}-${dom.backtestStartMonth.value}-01`,
+        end: `${dom.backtestEndYear.value}-${dom.backtestEndMonth.value}-28` // Use 28 to be safe
+    };
+
+    dom.runBacktestBtn.disabled = true;
+    dom.runBacktestBtn.textContent = '回測執行中...';
 
     try {
-        const result = await api.runBacktest(payload);
-        if (result.warning) {
-            dom.warningContainer.innerHTML = `<div class="warning-message" role="alert"><p class="font-bold">請注意</p><p>${result.warning}</p></div>`;
+        const result = await runBacktest(payload);
+        
+        if (result.error) {
+            displayError(dom.chartContainer, result.error);
+            renderSummaryTable([], null); // Clear summary table
+            return;
         }
-        ui.renderSummaryTable(result.data, result.benchmark);
-        ui.renderChart(result.data, result.benchmark);
-        dom.resultsContent.classList.remove('hidden');
+
+        const equityData = JSON.parse(result.equity);
+        const portfolioHistory = Object.entries(equityData).map(([date, value]) => ({ date, value }));
+
+        const portfolio = {
+            name: '投資組合',
+            cagr: result.cagr,
+            mdd: result.mdd,
+            sharpe_ratio: result.sharpe,
+            portfolioHistory: portfolioHistory
+        };
+
+        // For simplicity, we are not calculating volatility, sortino, alpha, beta here
+        // In a real scenario, you would calculate these.
+        portfolio.volatility = 0; 
+        portfolio.sortino_ratio = 0;
+        portfolio.alpha = 0;
+        portfolio.beta = 0;
+
+        renderChart([portfolio], null);
+        renderSummaryTable([portfolio], null);
+
     } catch (error) {
-        ui.displayError(dom.errorContainer, error.message);
-        dom.resultsPanel.classList.add('hidden');
+        console.error('Backtest failed:', error);
+        displayError(dom.chartContainer, `回測失敗: ${error.message}`);
+        renderSummaryTable([], null); // Clear summary table
     } finally {
-        dom.loader.classList.add('hidden');
+        dom.runBacktestBtn.disabled = false;
+        dom.runBacktestBtn.textContent = '執行回測';
     }
 }
