@@ -1,51 +1,38 @@
-// api.js: 封裝所有與後端 API 的通訊
+// api.js: 處理對後端 API 的所有請求
 
-import { dom } from './dom.js';
-import { displayError } from './ui.js';
+const API_BASE_URL = '/api';
 
-async function fetchApi(url, options) {
-    const response = await fetch(url, options);
-    const result = await response.json();
-    if (!response.ok) {
-        throw new Error(result.error || `HTTP 錯誤: ${response.status}`);
-    }
-    return result;
-}
-
-export async function fetchAvailableTickers() {
+async function post(endpoint, body) {
+    const url = `${API_BASE_URL}${endpoint}`;
     try {
-        return await fetchApi('/api/all-tickers');
-    } catch (error) {
-        console.error("獲取股票列表失敗:", error);
-        return []; // 回傳空陣列以避免應用程式崩潰
-    }
-}
-
-export async function runBacktest(payload) {
-    return await fetchApi('/api/backtest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
-}
-
-export async function runScan(payload) {
-    return await fetchApi('/api/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
-}
-
-export async function runScreener(payload) {
-    try {
-        return await fetchApi('/api/screener', {
+        const response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
         });
+
+        if (!response.ok) {
+            // Try to parse error from backend, otherwise throw generic error
+            try {
+                const errorData = await response.json();
+                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            } catch (e) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+        }
+        return await response.json();
     } catch (error) {
-        displayError(dom.screenerErrorContainer, error.message);
-        return null; // 在發生錯誤時回傳 null
+        console.error(`API call to ${url} failed:`, error);
+        throw error;
     }
+}
+
+export function runBacktest(payload) {
+    return post('/backtest', payload);
+}
+
+export function runScan(payload) {
+    return post('/scan', payload);
 }
