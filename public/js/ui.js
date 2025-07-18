@@ -90,6 +90,21 @@ export function renderTags() {
 
 export function renderChart(portfolios, benchmark) {
     const ctx = dom.portfolioChartCanvas.getContext('2d');
+    if (state.chartInstance) state.chartInstance.destroy();
+
+    // 檢查是否有錯誤訊息
+    const hasError = portfolios.some(p => p.error);
+    if (hasError) {
+        const errorMessage = portfolios.find(p => p.error).error;
+        ctx.clearRect(0, 0, dom.portfolioChartCanvas.width, dom.portfolioChartCanvas.height);
+        ctx.font = '16px Arial';
+        ctx.fillStyle = 'red';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Error: ${errorMessage}`, dom.portfolioChartCanvas.width / 2, dom.portfolioChartCanvas.height / 2);
+        setChartInstance(null); // 清除舊的圖表實例
+        return;
+    }
+
     const datasets = portfolios.map((p, i) => ({
         label: p.name, data: p.portfolioHistory, borderColor: state.COLORS[i % state.COLORS.length],
         borderWidth: 2, pointRadius: 0, fill: false, tension: 0.1,
@@ -105,11 +120,93 @@ export function renderChart(portfolios, benchmark) {
         });
     }
 
-    if (state.chartInstance) state.chartInstance.destroy();
     const newChart = new Chart(ctx, {
         type: 'line', data: { datasets }, options: {
             responsive: true, maintainAspectRatio: false,
-            scales: { x: { type: 'time', time: { unit: 'year' } }, y: { type: 'logarithmic', ticks: { callback: (value) => '$' + value.toLocaleString() } } },
+            scales: { x: { type: 'time', time: { unit: 'year' } }, y: { type: 'logarithmic', ticks: { callback: (value) => '
+
+export function renderSummaryTable(portfolios, benchmark) {
+    const table = dom.summaryTable;
+    table.innerHTML = '';
+    const metrics = [ 
+        { key: 'cagr', label: '年化報酬率 (CAGR)', format: (v) => `${(v * 100).toFixed(2)}%` }, 
+        { key: 'volatility', label: '年化波動率', format: (v) => `${(v * 100).toFixed(2)}%` },
+        { key: 'mdd', label: '最大回撤 (MDD)', format: (v) => `${(v * 100).toFixed(2)}%` }, 
+        { key: 'sharpe_ratio', label: '夏普比率', format: (v) => isFinite(v) ? v.toFixed(2) : 'N/A' }, 
+        { key: 'sortino_ratio', label: '索提諾比率', format: (v) => isFinite(v) ? v.toFixed(2) : 'N/A' },
+        { key: 'beta', label: 'Beta (β)', format: (v) => v !== null ? v.toFixed(2) : 'N/A' },
+        { key: 'alpha', label: 'Alpha (α)', format: (v) => v !== null ? `${(v * 100).toFixed(2)}%` : 'N/A' }
+    ];
+    const thead = table.createTHead(); const headerRow = thead.insertRow(); headerRow.className = "bg-gray-100";
+    headerRow.insertCell().outerHTML = `<th class="text-left pl-2">指標</th>`;
+    portfolios.forEach(p => headerRow.insertCell().outerHTML = `<th>${p.name}</th>`);
+    if (benchmark) { headerRow.insertCell().outerHTML = `<th class="bg-gray-200">${benchmark.name} (基準)</th>`; }
+    
+    const tbody = table.createTBody();
+    metrics.forEach(metric => {
+        const row = tbody.insertRow();
+        row.insertCell().outerHTML = `<td class="font-semibold text-left pl-2">${metric.label}</td>`;
+        portfolios.forEach(p => {
+            const cell = row.insertCell();
+            cell.textContent = metric.format(p[metric.key]);
+            if (['cagr', 'sharpe_ratio', 'sortino_ratio', 'alpha'].includes(metric.key)) cell.className = 'text-green-600 font-medium';
+            if (['mdd', 'volatility'].includes(metric.key)) cell.className = 'text-red-600 font-medium';
+        });
+        if (benchmark) {
+            const cell = row.insertCell();
+            cell.textContent = metric.format(benchmark[metric.key]);
+            cell.className = "bg-gray-50";
+        }
+    });
+}
+
+export function renderScanTable(results) {
+    const table = dom.scanSummaryTable;
+    table.innerHTML = '';
+    const metrics = [
+        { key: 'cagr', label: '年化報酬率 (CAGR)'}, { key: 'volatility', label: '年化波動率'},
+        { key: 'mdd', label: '最大回撤 (MDD)'}, { key: 'sharpe_ratio', label: '夏普比率'},
+        { key: 'sortino_ratio', label: '索提諾比率'}, { key: 'beta', label: 'Beta (β)'},
+        { key: 'alpha', label: 'Alpha (α)'}
+    ];
+    const formatters = {
+        cagr: (v) => `${(v * 100).toFixed(2)}%`, volatility: (v) => `${(v * 100).toFixed(2)}%`,
+        mdd: (v) => `${(v * 100).toFixed(2)}%`, sharpe_ratio: (v) => isFinite(v) ? v.toFixed(2) : 'N/A',
+        sortino_ratio: (v) => isFinite(v) ? v.toFixed(2) : 'N/A', beta: (v) => v !== null ? v.toFixed(2) : 'N/A',
+        alpha: (v) => v !== null ? `${(v * 100).toFixed(2)}%` : 'N/A'
+    };
+
+    const thead = table.createTHead(); const headerRow = thead.insertRow(); headerRow.className = "bg-gray-100";
+    let headerHTML = `<th class="text-left pl-2">股票代碼</th>`;
+    metrics.forEach(m => {
+        let sortClass = '';
+        if (state.scanSortState.key === m.key) {
+            sortClass = state.scanSortState.direction === 'asc' ? 'sort-asc' : 'sort-desc';
+        }
+        headerHTML += `<th class="sortable ${sortClass}" data-sort-key="${m.key}">${m.label}</th>`;
+    });
+    headerRow.innerHTML = headerHTML;
+
+    const tbody = table.createTBody();
+    results.forEach(res => {
+        const row = tbody.insertRow();
+        let tickerHTML = res.ticker;
+        if (res.note) { tickerHTML += ` <span class="text-xs text-gray-500 font-normal">${res.note}</span>`; }
+        row.insertCell().outerHTML = `<td class="font-semibold text-left pl-2">${tickerHTML}</td>`;
+        metrics.forEach(metric => {
+            const cell = row.insertCell();
+            if (res.error) {
+                cell.textContent = res.error;
+                cell.className = 'text-gray-500';
+            } else {
+                cell.textContent = formatters[metric.key](res[metric.key]);
+                if (['cagr', 'sharpe_ratio', 'sortino_ratio', 'alpha'].includes(metric.key)) cell.className = 'text-green-600 font-medium';
+                if (['mdd', 'volatility'].includes(metric.key)) cell.className = 'text-red-600 font-medium';
+            }
+        });
+    });
+}
+ + value.toLocaleString() } } },
             plugins: { tooltip: { mode: 'index', intersect: false, itemSort: (a, b) => b.parsed.y - a.parsed.y, callbacks: { label: (context) => { let label = context.dataset.label || ''; if (label) label += ': '; if (context.parsed.y !== null) { label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed.y); } return label; } } } }
         }
     });
