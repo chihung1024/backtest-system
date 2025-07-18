@@ -1,0 +1,10 @@
+flask
+yfinance
+pandas
+numpy
+cachetools
+requests
+beautifulsoup4
+lxml
+tqdm
+flake8
